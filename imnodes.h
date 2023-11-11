@@ -307,10 +307,10 @@ void EndNodeTitleBar();
 // Each attribute id must be unique.
 
 // Create an input attribute block. The pin is rendered on left side.
-void BeginInputAttribute(int id, ImNodesPinShape shape = ImNodesPinShape_CircleFilled);
+void BeginInputAttribute(int id, ImNodesPinShape shape = ImNodesPinShape_CircleFilled, int category = 0);
 void EndInputAttribute();
 // Create an output attribute block. The pin is rendered on the right side.
-void BeginOutputAttribute(int id, ImNodesPinShape shape = ImNodesPinShape_CircleFilled);
+void BeginOutputAttribute(int id, ImNodesPinShape shape = ImNodesPinShape_CircleFilled, int category = 0);
 void EndOutputAttribute();
 // Create a static attribute block. A static attribute has no pin, and therefore can't be linked to
 // anything. However, you can still use IsAttributeActive() and IsAnyAttributeActive() to check for
