@@ -922,6 +922,12 @@ bool ShouldLinkSnapToPin(
         return false;
     }
 
+    // The pins must have the same category
+    if (start_pin.Category != end_pin.Category)
+    {
+        return false;
+    }
+
     // The link to be created must not be a duplicate, unless it is the link which was created on
     // snap. In that case we want to snap, since we want it to appear visually as if the created
     // link remains snapped to the pin.
@@ -1639,7 +1645,8 @@ void BeginPinAttribute(
     const int                  id,
     const ImNodesAttributeType type,
     const ImNodesPinShape      shape,
-    const int                  node_idx)
+    const int                  node_idx,
+    const int                  category)
 {
     // Make sure to call BeginNode() before calling
     // BeginAttribute()
@@ -1659,6 +1666,7 @@ void BeginPinAttribute(
     pin.Id = id;
     pin.ParentNodeIdx = node_idx;
     pin.Type = type;
+    pin.Category = category;
     pin.Shape = shape;
     pin.Flags = GImNodes->CurrentAttributeFlags;
     pin.ColorStyle.Background = GImNodes->Style.Colors[ImNodesCol_Pin];
@@ -2545,16 +2553,16 @@ void EndNodeTitleBar()
     ImGui::SetCursorPos(GridSpaceToEditorSpace(editor, GetNodeContentOrigin(node)));
 }
 
-void BeginInputAttribute(const int id, const ImNodesPinShape shape)
+void BeginInputAttribute(const int id, const ImNodesPinShape shape, const int category)
 {
-    BeginPinAttribute(id, ImNodesAttributeType_Input, shape, GImNodes->CurrentNodeIdx);
+    BeginPinAttribute(id, ImNodesAttributeType_Input, shape, GImNodes->CurrentNodeIdx, category);
 }
 
 void EndInputAttribute() { EndPinAttribute(); }
 
-void BeginOutputAttribute(const int id, const ImNodesPinShape shape)
+void BeginOutputAttribute(const int id, const ImNodesPinShape shape, const int category)
 {
-    BeginPinAttribute(id, ImNodesAttributeType_Output, shape, GImNodes->CurrentNodeIdx);
+    BeginPinAttribute(id, ImNodesAttributeType_Output, shape, GImNodes->CurrentNodeIdx, category);
 }
 
 void EndOutputAttribute() { EndPinAttribute(); }
