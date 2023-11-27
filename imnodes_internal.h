@@ -143,9 +143,13 @@ struct ImNodeData
 
     struct
     {
-        float  CornerRounding;
-        ImVec2 Padding;
-        float  BorderThickness;
+        float                CornerRounding;
+        ImVec2               Padding;
+        float                BorderThickness;
+        float                ShapedSideDepth;
+        ImNodesNodeSideShape SideShapeLeft;
+        ImNodesNodeSideShape SideShapeRight;
+
     } LayoutStyle;
 
     ImVector<int> PinIndices;

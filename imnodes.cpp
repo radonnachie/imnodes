@@ -1325,6 +1325,27 @@ inline ImVec2 GetNodeContentOrigin(const ImNodeData& node)
     return node.Origin + title_bar_height + node.LayoutStyle.Padding;
 }
 
+inline float GetNodeShapedSideDepth(const ImNodeData& node)
+{
+    return node.LayoutStyle.ShapedSideDepth == 0.0
+        ? (node.Rect.GetHeight() - node.TitleBarContentRect.GetHeight() - 2*node.LayoutStyle.Padding.y)/2.0
+        : node.LayoutStyle.ShapedSideDepth;
+}
+
+inline float GetNodeLeftSideDepth(const ImNodeData& node)
+{
+    return node.LayoutStyle.SideShapeLeft == ImNodesNodeSideShape_Straight
+        ? 0.0
+        : GetNodeShapedSideDepth(node);
+}
+
+inline float GetNodeRightSideDepth(const ImNodeData& node)
+{
+    return node.LayoutStyle.SideShapeRight == ImNodesNodeSideShape_Straight
+        ? 0.0
+        : GetNodeShapedSideDepth(node);
+}
+
 inline ImRect GetNodeTitleRect(const ImNodeData& node)
 {
     ImRect expanded_title_rect = node.TitleBarContentRect;
@@ -1332,8 +1353,11 @@ inline ImRect GetNodeTitleRect(const ImNodeData& node)
 
     return ImRect(
         expanded_title_rect.Min,
-        expanded_title_rect.Min + ImVec2(node.Rect.GetWidth(), 0.f) +
-            ImVec2(0.f, expanded_title_rect.GetHeight()));
+        expanded_title_rect.Min + ImVec2(
+            node.Rect.GetWidth() - GetNodeLeftSideDepth(node) - GetNodeRightSideDepth(node),
+            expanded_title_rect.GetHeight()
+        )
+    );
 }
 
 void DrawGrid(ImNodesEditorContext& editor, const ImVec2& canvas_size)
@@ -1505,6 +1529,100 @@ void DrawPin(ImNodesEditorContext& editor, const int pin_idx)
     DrawPinShape(pin.Pos, pin, pin_color);
 }
 
+inline void PathNode(const ImNodeData& node) {
+    const float title_bar_height = node.TitleBarContentRect.GetHeight() > 0.0f ? GetNodeTitleRect(node).GetHeight() : 0.0f;
+    const float node_height = node.Rect.GetHeight() - title_bar_height;
+    const float shape_depth = GetNodeShapedSideDepth(node);
+    const float shape_radius = (shape_depth/2.0) + (node_height*node_height)/(8.0*shape_depth);
+    const float shape_arc_angle = ImAcos(node_height/(2.0*shape_radius));
+
+    const ImRect node_body = ImRect(
+        ImVec2(node.Rect.Min.x + 0.5 + GetNodeLeftSideDepth(node), node.Rect.Min.y + title_bar_height + 0.5),
+        ImVec2(node.Rect.Max.x - 0.5 - GetNodeRightSideDepth(node), node.Rect.Max.y - 0.5)
+    );
+    const float node_mid_y = node_body.Min.y + node_height/2.0;
+
+    GImNodes->CanvasDrawList->PathLineTo(ImVec2(
+        node_body.Min.x,
+        node_body.Min.y
+    ));
+    GImNodes->CanvasDrawList->PathLineTo(ImVec2(
+        node_body.Max.x,
+        node_body.Min.y
+    ));
+
+    if (node.LayoutStyle.SideShapeRight == ImNodesNodeSideShape_Sharp) {
+        GImNodes->CanvasDrawList->PathLineTo(ImVec2(
+            node_body.Max.x + shape_depth,
+            node_mid_y
+        ));
+    }
+    else if (node.LayoutStyle.SideShapeRight == ImNodesNodeSideShape_Round) {
+        if (shape_radius != node_height/2.0) {
+            GImNodes->CanvasDrawList->PathArcTo(
+                ImVec2(
+                    node_body.Max.x - (shape_radius - shape_depth),
+                    node_mid_y
+                ),
+                shape_radius - 0.5f,
+                -shape_arc_angle,
+                shape_arc_angle
+            );
+        }
+        else {
+            GImNodes->CanvasDrawList->PathArcToFast(
+                ImVec2(
+                    node_body.Max.x - (shape_radius - shape_depth),
+                    node_mid_y
+                ),
+                shape_radius - 0.5f,
+                9,
+                3
+            );
+        }
+    }
+
+    GImNodes->CanvasDrawList->PathLineTo(ImVec2(
+        node_body.Max.x,
+        node_body.Max.y
+    ));
+    GImNodes->CanvasDrawList->PathLineTo(ImVec2(
+        node_body.Min.x,
+        node_body.Max.y
+    ));
+
+    if (node.LayoutStyle.SideShapeLeft == ImNodesNodeSideShape_Sharp) {
+        GImNodes->CanvasDrawList->PathLineTo(ImVec2(
+            node_body.Min.x - shape_depth,
+            node_mid_y
+        ));
+    }
+    else if (node.LayoutStyle.SideShapeLeft == ImNodesNodeSideShape_Round) {
+        if (shape_radius != node_height/2.0) {
+            GImNodes->CanvasDrawList->PathArcTo(
+                ImVec2(
+                    node_body.Min.x + (shape_radius - shape_depth),
+                    node_mid_y
+                ),
+                shape_radius - 0.5f,
+                IM_PI - shape_arc_angle,
+                IM_PI + shape_arc_angle
+            );
+        }
+        else {
+            GImNodes->CanvasDrawList->PathArcToFast(
+                ImVec2(
+                    node_body.Min.x + (shape_radius - shape_depth),
+                    node_mid_y
+                ),
+                shape_radius - 0.5f,
+                3,
+                9
+            );
+        }
+    }
+}
+
 void DrawNode(ImNodesEditorContext& editor, const int node_idx)
 {
     const ImNodeData& node = editor.Nodes.Pool[node_idx];
@@ -1529,10 +1647,6 @@ void DrawNode(ImNodesEditorContext& editor, const int node_idx)
     }
 
     {
-        // node base
-        GImNodes->CanvasDrawList->AddRectFilled(
-            node.Rect.Min, node.Rect.Max, node_background, node.LayoutStyle.CornerRounding);
-
         // title bar:
         if (node.TitleBarContentRect.GetHeight() > 0.f)
         {
@@ -1556,25 +1670,32 @@ void DrawNode(ImNodesEditorContext& editor, const int node_idx)
 #endif
         }
 
+        // node base
+        PathNode(node);
+        GImNodes->CanvasDrawList->PathFillConvex(node_background);
+
         if ((GImNodes->Style.Flags & ImNodesStyleFlags_NodeOutline) != 0)
         {
-#if IMGUI_VERSION_NUM < 18200
-            GImNodes->CanvasDrawList->AddRect(
-                node.Rect.Min,
-                node.Rect.Max,
-                node.ColorStyle.Outline,
-                node.LayoutStyle.CornerRounding,
-                ImDrawCornerFlags_All,
-                node.LayoutStyle.BorderThickness);
-#else
-            GImNodes->CanvasDrawList->AddRect(
-                node.Rect.Min,
-                node.Rect.Max,
-                node.ColorStyle.Outline,
-                node.LayoutStyle.CornerRounding,
-                ImDrawFlags_RoundCornersAll,
-                node.LayoutStyle.BorderThickness);
-#endif
+            PathNode(node);
+            GImNodes->CanvasDrawList->PathStroke(node.ColorStyle.Outline, ImDrawFlags_Closed, node.LayoutStyle.BorderThickness);
+
+// #if IMGUI_VERSION_NUM < 18200
+//             GImNodes->CanvasDrawList->AddRect(
+//                 node.Rect.Min,
+//                 node.Rect.Max,
+//                 node.ColorStyle.Outline,
+//                 node.LayoutStyle.CornerRounding,
+//                 ImDrawCornerFlags_All,
+//                 node.LayoutStyle.BorderThickness);
+// #else
+//             GImNodes->CanvasDrawList->AddRect(
+//                 node.Rect.Min,
+//                 node.Rect.Max,
+//                 node.ColorStyle.Outline,
+//                 node.LayoutStyle.CornerRounding,
+//                 ImDrawFlags_RoundCornersAll,
+//                 node.LayoutStyle.BorderThickness);
+// #endif
         }
     }
 
@@ -2004,9 +2125,9 @@ ImNodesIO::ImNodesIO()
 }
 
 ImNodesStyle::ImNodesStyle()
-    : GridSpacing(24.f), NodeCornerRounding(4.f), NodePadding(8.f, 8.f), NodeBorderThickness(1.f),
-      LinkThickness(3.f), LinkLineSegmentsPerLength(0.1f), LinkHoverDistance(10.f),
-      PinCircleRadius(4.f), PinQuadSideLength(7.f), PinTriangleSideLength(9.5),
+    : GridSpacing(24.f), NodeShapedSideDepth(20.f), NodeCornerRounding(4.f), NodePadding(8.f, 8.f),
+      NodeBorderThickness(1.f), LinkThickness(3.f), LinkLineSegmentsPerLength(0.1f),
+      LinkHoverDistance(10.f), PinCircleRadius(4.f), PinQuadSideLength(7.f), PinTriangleSideLength(9.5),
       PinLineThickness(1.f), PinHoverRadius(10.f), PinOffset(0.f), MiniMapPadding(8.0f, 8.0f),
       MiniMapOffset(4.0f, 4.0f), Flags(ImNodesStyleFlags_NodeOutline | ImNodesStyleFlags_GridLines),
       Colors()
@@ -2514,6 +2635,12 @@ void EndNode()
     ImNodeData& node = editor.Nodes.Pool[GImNodes->CurrentNodeIdx];
     node.Rect = GetItemRect();
     node.Rect.Expand(node.LayoutStyle.Padding);
+    if (node.LayoutStyle.SideShapeLeft != ImNodesNodeSideShape_Straight) {
+        node.Rect.Min.x -= GetNodeLeftSideDepth(node);
+    }
+    if (node.LayoutStyle.SideShapeRight != ImNodesNodeSideShape_Straight) {
+        node.Rect.Max.x += GetNodeRightSideDepth(node);
+    }
 
     editor.GridContentBounds.Add(node.Origin);
     editor.GridContentBounds.Add(node.Origin + node.Rect.GetSize());
@@ -2772,6 +2899,27 @@ void SetNodeDraggable(const int node_id, const bool draggable)
     ImNodesEditorContext& editor = EditorContextGet();
     ImNodeData&           node = ObjectPoolFindOrCreateObject(editor.Nodes, node_id);
     node.Draggable = draggable;
+}
+
+void SetNodeLeftSideShape(const int node_id, const ImNodesNodeSideShape shape)
+{
+    ImNodesEditorContext& editor = EditorContextGet();
+    ImNodeData&           node = ObjectPoolFindOrCreateObject(editor.Nodes, node_id);
+    node.LayoutStyle.SideShapeLeft = shape;
+}
+
+void SetNodeRightSideShape(const int node_id, const ImNodesNodeSideShape shape)
+{
+    ImNodesEditorContext& editor = EditorContextGet();
+    ImNodeData&           node = ObjectPoolFindOrCreateObject(editor.Nodes, node_id);
+    node.LayoutStyle.SideShapeRight = shape;
+}
+
+void SetNodeShapedSideDepth(const int node_id, const float depth)
+{
+    ImNodesEditorContext& editor = EditorContextGet();
+    ImNodeData&           node = ObjectPoolFindOrCreateObject(editor.Nodes, node_id);
+    node.LayoutStyle.ShapedSideDepth = depth;
 }
 
 ImVec2 GetNodeScreenSpacePos(const int node_id)
