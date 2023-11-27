@@ -17,6 +17,7 @@ typedef int ImNodesStyleFlags;      // -> enum ImNodesStyleFlags_
 typedef int ImNodesPinShape;        // -> enum ImNodesPinShape_
 typedef int ImNodesAttributeFlags;  // -> enum ImNodesAttributeFlags_
 typedef int ImNodesMiniMapLocation; // -> enum ImNodesMiniMapLocation_
+typedef int ImNodesNodeSideShape;   // -> enum ImNodesNodeSideShape_
 
 enum ImNodesCol_
 {
@@ -89,6 +90,13 @@ enum ImNodesPinShape_
     ImNodesPinShape_TriangleFilled,
     ImNodesPinShape_Quad,
     ImNodesPinShape_QuadFilled
+};
+
+enum ImNodesNodeSideShape_
+{
+    ImNodesNodeSideShape_Straight,
+    ImNodesNodeSideShape_Round,
+    ImNodesNodeSideShape_Sharp
 };
 
 // This enum controls the way the attribute pins behave.
@@ -167,6 +175,7 @@ struct ImNodesStyle
     float GridSpacing;
 
     float  NodeCornerRounding;
+    float  NodeShapedSideDepth;
     ImVec2 NodePadding;
     float  NodeBorderThickness;
 
@@ -329,6 +338,12 @@ void Link(int id, int start_attribute_id, int end_attribute_id);
 
 // Enable or disable the ability to click and drag a specific node.
 void SetNodeDraggable(int node_id, const bool draggable);
+// Set the shape of the left side for a specific node.
+void SetNodeLeftSideShape(const int node_id, const ImNodesNodeSideShape shape);
+// Set the shape of the right side for a specific node.
+void SetNodeRightSideShape(const int node_id, const ImNodesNodeSideShape shape);
+// Set the depth of a shaped side for a specific node.
+void SetNodeShapedSideDepth(const int node_id, const float depth);
 
 // The node's position can be expressed in three coordinate systems:
 // * screen space coordinates, -- the origin is the upper left corner of the window.
