@@ -18,6 +18,7 @@ typedef int ImNodesPinShape;        // -> enum ImNodesPinShape_
 typedef int ImNodesAttributeFlags;  // -> enum ImNodesAttributeFlags_
 typedef int ImNodesMiniMapLocation; // -> enum ImNodesMiniMapLocation_
 typedef int ImNodesNodeSideShape;   // -> enum ImNodesNodeSideShape_
+typedef int ImNodesLinkStyle;       // -> enum ImNodesLinkStyle_
 
 enum ImNodesCol_
 {
@@ -59,6 +60,7 @@ enum ImNodesStyleVar_
     ImNodesStyleVar_NodeCornerRounding,
     ImNodesStyleVar_NodePadding,
     ImNodesStyleVar_NodeBorderThickness,
+    ImNodesStyleVar_LinkTerminationMargin,
     ImNodesStyleVar_LinkThickness,
     ImNodesStyleVar_LinkLineSegmentsPerLength,
     ImNodesStyleVar_LinkHoverDistance,
@@ -97,6 +99,12 @@ enum ImNodesNodeSideShape_
     ImNodesNodeSideShape_Straight,
     ImNodesNodeSideShape_Round,
     ImNodesNodeSideShape_Sharp
+};
+
+enum ImNodesLinkStyle_
+{
+    ImNodesLinkStyle_Orthogonal = 0,
+    ImNodesLinkStyle_Beziers
 };
 
 // This enum controls the way the attribute pins behave.
@@ -179,6 +187,7 @@ struct ImNodesStyle
     ImVec2 NodePadding;
     float  NodeBorderThickness;
 
+    float LinkTerminationMargin;
     float LinkThickness;
     float LinkLineSegmentsPerLength;
     float LinkHoverDistance;
@@ -316,10 +325,10 @@ void EndNodeTitleBar();
 // Each attribute id must be unique.
 
 // Create an input attribute block. The pin is rendered on left side.
-void BeginInputAttribute(int id, ImNodesPinShape shape = ImNodesPinShape_CircleFilled, int category = 0);
+void BeginInputAttribute(int id, ImNodesPinShape shape = ImNodesPinShape_CircleFilled);
 void EndInputAttribute();
 // Create an output attribute block. The pin is rendered on the right side.
-void BeginOutputAttribute(int id, ImNodesPinShape shape = ImNodesPinShape_CircleFilled, int category = 0);
+void BeginOutputAttribute(int id, ImNodesPinShape shape = ImNodesPinShape_CircleFilled);
 void EndOutputAttribute();
 // Create a static attribute block. A static attribute has no pin, and therefore can't be linked to
 // anything. However, you can still use IsAttributeActive() and IsAnyAttributeActive() to check for
@@ -364,6 +373,11 @@ ImVec2 GetNodeGridSpacePos(const int node_id);
 
 // If ImNodesStyleFlags_GridSnapping is enabled, snap the specified node's origin to the grid.
 void SnapNodeToGrid(int node_id);
+
+// Set the categoryof this pin
+void SetPinCategory(const int pin_id, const int category);
+// Set the style of links attached to this pin
+void SetPinLinkStyle(const int pin_id, const ImNodesLinkStyle style);
 
 // Returns true if the current node editor canvas is being hovered over by the mouse, and is not
 // blocked by any other windows.

@@ -172,6 +172,7 @@ struct ImPinData
     ImRect               AttributeRect;
     ImNodesAttributeType Type;
     ImNodesPinShape      Shape;
+    ImNodesLinkStyle     LinkStyle;
     ImVec2               Pos; // screen-space coordinates
     int                  Flags;
     int                  Category;
@@ -183,8 +184,8 @@ struct ImPinData
 
     ImPinData(const int pin_id)
         : Id(pin_id), ParentNodeIdx(), AttributeRect(), Type(ImNodesAttributeType_None),
-          Shape(ImNodesPinShape_CircleFilled), Pos(), Flags(ImNodesAttributeFlags_None),
-          ColorStyle(), Category(0)
+          Shape(ImNodesPinShape_CircleFilled), LinkStyle(ImNodesLinkStyle_Beziers),
+          Pos(), Flags(ImNodesAttributeFlags_None), ColorStyle(), Category(0)
     {
     }
 };
@@ -193,13 +194,15 @@ struct ImLinkData
 {
     int Id;
     int StartPinIdx, EndPinIdx;
+    
+    ImVector<float>     PathOrthogonalDistances;
 
     struct
     {
         ImU32 Base, Hovered, Selected;
-    } ColorStyle;
+    } ColorStyle;    
 
-    ImLinkData(const int link_id) : Id(link_id), StartPinIdx(), EndPinIdx(), ColorStyle() {}
+    ImLinkData(const int link_id) : Id(link_id), StartPinIdx(), EndPinIdx(), PathOrthogonalDistances(), ColorStyle() {}
 };
 
 struct ImClickInteractionState
