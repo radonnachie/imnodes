@@ -140,6 +140,50 @@ inline ImVector<float> GetMinimalPathOrthogonalDistances(
     return path_orthogonal_distances;
 }
 
+inline void SetLinkPathOrthogonalWaypoints(
+    ImVector<float>& link_path,
+    const ImVec2& pin_start_pos,
+    const ImVec2& pin_end_pos,
+    const size_t length,
+    const float* orthogonal_waypoints
+)
+{
+    ImVec2 pos(
+        pin_start_pos.x,
+        pin_start_pos.y
+    );
+
+    bool even = true;
+    size_t i = 0;
+    float distance;
+    for (; i < length; i++, even = !even)
+    {
+        if (even)
+        {
+            distance = orthogonal_waypoints[i] - pos.x;
+            link_path.push_back(distance);
+            pos.x += distance;
+        }
+        else
+        {
+            distance = orthogonal_waypoints[i] - pos.y;
+            link_path.push_back(distance);
+            pos.y += distance;
+        }
+    }
+
+    if (even) {
+        // last waypoint was a horizontal one,
+        // meaning the next distance is horizontal
+        link_path.push_back(0.0);
+    }
+    // link
+    distance = pin_end_pos.y - pos.y;
+    link_path.push_back(distance);
+    distance = pin_end_pos.x - pos.x;
+    link_path.push_back(distance);
+}
+
 inline float GetDistanceToPathOrthogonalDistances(
     const ImVec2& start,
     const ImVector<float>& path_orthogonal_distances,
@@ -3003,24 +3047,60 @@ void Link(const int id, const int start_attr_id, const int end_attr_id)
     ImLinkData&           link = ObjectPoolFindOrCreateObject(editor.Links, id);
     link.Id = id;
     link.StartPinIdx = ObjectPoolFindOrCreateIndex(editor.Pins, start_attr_id);
-    IM_ASSERT(editor.Pins.Pool[link.StartPinIdx].Type == ImNodesAttributeType_Output);
-    link.EndPinIdx = ObjectPoolFindOrCreateIndex(editor.Pins, end_attr_id);
-    IM_ASSERT(editor.Pins.Pool[link.EndPinIdx].Type == ImNodesAttributeType_Input);
-
     const ImPinData& pin_start = editor.Pins.Pool[link.StartPinIdx];
+    IM_ASSERT(pin_start.Type == ImNodesAttributeType_Output);
+    link.EndPinIdx = ObjectPoolFindOrCreateIndex(editor.Pins, end_attr_id);
     const ImPinData& pin_end = editor.Pins.Pool[link.EndPinIdx];
-    const ImRect&    node_rect_start = editor.Nodes.Pool[pin_start.ParentNodeIdx].Rect;
-    const ImRect&    node_rect_end = editor.Nodes.Pool[pin_end.ParentNodeIdx].Rect;
-    link.PathOrthogonalDistances = GetMinimalPathOrthogonalDistances(
-        GetScreenSpacePinCoordinates(
-                node_rect_end,
-                pin_end.AttributeRect,
-                pin_end.Type)
-        - GetScreenSpacePinCoordinates(
-                node_rect_start,
-                pin_start.AttributeRect,
-                pin_start.Type),
-        GImNodes->Style.LinkTerminationMargin);
+    IM_ASSERT(pin_end.Type == ImNodesAttributeType_Input);
+
+    if (link.PathOrthogonalDistances.empty()) {
+        link.PathOrthogonalDistances = GetMinimalPathOrthogonalDistances(
+            GetScreenSpacePinCoordinates(
+                    editor,
+                    pin_end)
+            - GetScreenSpacePinCoordinates(
+                    editor,
+                    pin_start),
+            GImNodes->Style.LinkTerminationMargin);
+    }
+    link.ColorStyle.Base = GImNodes->Style.Colors[ImNodesCol_Link];
+    link.ColorStyle.Hovered = GImNodes->Style.Colors[ImNodesCol_LinkHovered];
+    link.ColorStyle.Selected = GImNodes->Style.Colors[ImNodesCol_LinkSelected];
+
+    // Check if this link was created by the current link event
+    if ((editor.ClickInteraction.Type == ImNodesClickInteractionType_LinkCreation &&
+         editor.Pins.Pool[link.EndPinIdx].Flags & ImNodesAttributeFlags_EnableLinkCreationOnSnap &&
+         editor.ClickInteraction.LinkCreation.StartPinIdx == link.StartPinIdx &&
+         editor.ClickInteraction.LinkCreation.EndPinIdx == link.EndPinIdx) ||
+        (editor.ClickInteraction.LinkCreation.StartPinIdx == link.EndPinIdx &&
+         editor.ClickInteraction.LinkCreation.EndPinIdx == link.StartPinIdx))
+    {
+        GImNodes->SnapLinkIdx = ObjectPoolFindOrCreateIndex(editor.Links, id);
+    }
+}
+
+void LinkWithWaypoints(const int id, const int start_attr_id, const int end_attr_id, const size_t length, const float* orthogonal_waypoints)
+{
+    IM_ASSERT(GImNodes->CurrentScope == ImNodesScope_Editor);
+
+    ImNodesEditorContext& editor = EditorContextGet();
+    ImLinkData&           link = ObjectPoolFindOrCreateObject(editor.Links, id);
+    link.Id = id;
+    link.StartPinIdx = ObjectPoolFindOrCreateIndex(editor.Pins, start_attr_id);
+    const ImPinData& pin_start = editor.Pins.Pool[link.StartPinIdx];
+    IM_ASSERT(pin_start.Type == ImNodesAttributeType_Output);
+    link.EndPinIdx = ObjectPoolFindOrCreateIndex(editor.Pins, end_attr_id);
+    const ImPinData& pin_end = editor.Pins.Pool[link.EndPinIdx];
+    IM_ASSERT(pin_end.Type == ImNodesAttributeType_Input);
+
+    if (link.PathOrthogonalDistances.empty()) {
+        SetLinkPathOrthogonalWaypoints(
+            link.PathOrthogonalDistances,
+            ScreenSpaceToGridSpace(editor, pin_start.Pos),
+            ScreenSpaceToGridSpace(editor, pin_end.Pos),
+            length,
+            orthogonal_waypoints);
+    }
     link.ColorStyle.Base = GImNodes->Style.Colors[ImNodesCol_Link];
     link.ColorStyle.Hovered = GImNodes->Style.Colors[ImNodesCol_LinkHovered];
     link.ColorStyle.Selected = GImNodes->Style.Colors[ImNodesCol_LinkSelected];
@@ -3244,6 +3324,23 @@ void SetPinLinkStyle(const int pin_id, const ImNodesLinkStyle style)
     const int pin_idx = ObjectPoolFind(editor.Pins, pin_id);
     ImPinData& pin = editor.Pins.Pool[pin_idx];
     pin.LinkStyle = style;
+}
+
+void SetLinkPathOrthogonalWaypoints(const int link_id, const size_t length, const float* orthogonal_waypoints)
+{
+    ImNodesEditorContext& editor = EditorContextGet();
+    const int link_idx = ObjectPoolFind(editor.Links, link_id);
+    ImLinkData& link = editor.Links.Pool[link_idx];
+    const ImPinData&  pin_start = editor.Pins.Pool[link.StartPinIdx];
+    const ImPinData&  pin_end = editor.Pins.Pool[link.EndPinIdx];
+    
+    link.PathOrthogonalDistances.clear();
+    SetLinkPathOrthogonalWaypoints(
+        link.PathOrthogonalDistances,
+        ScreenSpaceToGridSpace(editor, pin_start.Pos),
+        ScreenSpaceToGridSpace(editor, pin_end.Pos),
+        length,
+        orthogonal_waypoints);
 }
 
 bool IsEditorHovered() { return MouseInCanvas(); }
