@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include <imgui.h>
+#include <stdio.h>
 
 #ifdef IMNODES_USER_CONFIG
 #include IMNODES_USER_CONFIG
@@ -343,7 +344,14 @@ void PopAttributeFlag();
 // Render a link between attributes.
 // The attributes ids used here must match the ids used in Begin(Input|Output)Attribute function
 // calls. The order of start_attr and end_attr doesn't make a difference for rendering the link.
-void Link(int id, int start_attribute_id, int end_attribute_id);
+void Link(const int id, const int start_attribute_id, const int end_attribute_id);
+
+// Render a link between attributes, passing through waypoints.
+// The attributes ids used here must match the ids used in Begin(Input|Output)Attribute function
+// calls. The order of start_attr and end_attr doesn't make a difference for rendering the link.
+// The waypoints alternate between verital and horizontal coordinates, starting and ending with
+// vertical: there must be an odd number of waypoints.
+void LinkWithWaypoints(const int id, const int start_attribute_id, const int end_attribute_id, const size_t length, const float* orthogonal_waypoints);
 
 // Enable or disable the ability to click and drag a specific node.
 void SetNodeDraggable(int node_id, const bool draggable);
@@ -378,6 +386,9 @@ void SnapNodeToGrid(int node_id);
 void SetPinCategory(const int pin_id, const int category);
 // Set the style of links attached to this pin
 void SetPinLinkStyle(const int pin_id, const ImNodesLinkStyle style);
+
+// Set the path of the link
+void SetLinkPathOrthogonalWaypoints(const int link_id, const size_t length, const float* waypoints);
 
 // Returns true if the current node editor canvas is being hovered over by the mouse, and is not
 // blocked by any other windows.
