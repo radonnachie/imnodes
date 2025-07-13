@@ -382,11 +382,13 @@ ImVec2 GetNodeGridSpacePos(const int node_id);
 // If ImNodesStyleFlags_GridSnapping is enabled, snap the specified node's origin to the grid.
 void SnapNodeToGrid(int node_id);
 
-// Set the categoryof this pin
+// Set the category of this pin
 void SetPinCategory(const int pin_id, const int category);
-// Set the style of links attached to this pin
-void SetPinLinkStyle(const int pin_id, const ImNodesLinkStyle style);
+// Get the category of this pin
+int GetPinCategory(const int pin_id);
 
+// Set the style of this link
+void SetLinkStyle(const int link_id, const ImNodesLinkStyle style);
 // Set the path of the link
 void SetLinkPathOrthogonalWaypoints(const int link_id, const size_t length, const float* waypoints);
 

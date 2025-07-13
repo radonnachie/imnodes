@@ -39,6 +39,104 @@ namespace
 {
 // [SECTION] bezier curve helpers
 
+struct CubicBezier
+{
+    ImVec2 P0, P1, P2, P3;
+    int    NumSegments;
+};
+
+inline ImVec2 EvalCubicBezier(
+    const float   t,
+    const ImVec2& P0,
+    const ImVec2& P1,
+    const ImVec2& P2,
+    const ImVec2& P3)
+{
+    // B(t) = (1-t)**3 p0 + 3(1 - t)**2 t P1 + 3(1-t)t**2 P2 + t**3 P3
+
+    const float u = 1.0f - t;
+    const float b0 = u * u * u;
+    const float b1 = 3 * u * u * t;
+    const float b2 = 3 * u * t * t;
+    const float b3 = t * t * t;
+    return ImVec2(
+        b0 * P0.x + b1 * P1.x + b2 * P2.x + b3 * P3.x,
+        b0 * P0.y + b1 * P1.y + b2 * P2.y + b3 * P3.y);
+}
+
+// Calculates the closest point along each bezier curve segment.
+ImVec2 GetClosestPointOnCubicBezier(const int num_segments, const ImVec2& p, const CubicBezier& cb)
+{
+    IM_ASSERT(num_segments > 0);
+    ImVec2 p_last = cb.P0;
+    ImVec2 p_closest;
+    float  p_closest_dist = FLT_MAX;
+    float  t_step = 1.0f / (float)num_segments;
+    for (int i = 1; i <= num_segments; ++i)
+    {
+        ImVec2 p_current = EvalCubicBezier(t_step * i, cb.P0, cb.P1, cb.P2, cb.P3);
+        ImVec2 p_line = ImLineClosestPoint(p_last, p_current, p);
+        float  dist = ImLengthSqr(p - p_line);
+        if (dist < p_closest_dist)
+        {
+            p_closest = p_line;
+            p_closest_dist = dist;
+        }
+        p_last = p_current;
+    }
+    return p_closest;
+}
+
+inline float GetDistanceToCubicBezier(
+    const ImVec2&      pos,
+    const CubicBezier& cubic_bezier,
+    const int          num_segments)
+{
+    const ImVec2 point_on_curve = GetClosestPointOnCubicBezier(num_segments, pos, cubic_bezier);
+
+    const ImVec2 to_curve = point_on_curve - pos;
+    return ImSqrt(ImLengthSqr(to_curve));
+}
+
+inline ImRect GetContainingRectForCubicBezier(const CubicBezier& cb)
+{
+    const ImVec2 min = ImVec2(ImMin(cb.P0.x, cb.P3.x), ImMin(cb.P0.y, cb.P3.y));
+    const ImVec2 max = ImVec2(ImMax(cb.P0.x, cb.P3.x), ImMax(cb.P0.y, cb.P3.y));
+
+    const float hover_distance = GImNodes->Style.LinkHoverDistance;
+
+    ImRect rect(min, max);
+    rect.Add(cb.P1);
+    rect.Add(cb.P2);
+    rect.Expand(ImVec2(hover_distance, hover_distance));
+
+    return rect;
+}
+
+inline CubicBezier GetCubicBezier(
+    ImVec2                     start,
+    ImVec2                     end,
+    const ImNodesAttributeType start_type,
+    const float                line_segments_per_length)
+{
+    IM_ASSERT(
+        (start_type == ImNodesAttributeType_Input) || (start_type == ImNodesAttributeType_Output));
+    if (start_type == ImNodesAttributeType_Input)
+    {
+        ImSwap(start, end);
+    }
+
+    const float  link_length = ImSqrt(ImLengthSqr(end - start));
+    const ImVec2 offset = ImVec2(0.25f * link_length, 0.f);
+    CubicBezier  cubic_bezier;
+    cubic_bezier.P0 = start;
+    cubic_bezier.P1 = start + offset;
+    cubic_bezier.P2 = end - offset;
+    cubic_bezier.P3 = end;
+    cubic_bezier.NumSegments = ImMax(static_cast<int>(link_length * line_segments_per_length), 1);
+    return cubic_bezier;
+}
+
 struct QuadraticBezier
 {
     ImVec2 P0, P1, P2;
@@ -140,6 +238,30 @@ inline ImVector<float> GetMinimalPathOrthogonalDistances(
     return path_orthogonal_distances;
 }
 
+inline ImVector<float> GetLinkPathOrthogonalDistances(
+    const ImLinkData& link,
+    const ImPinData&  start_pin,
+    const ImPinData&  end_pin)
+{
+    return link.PathOrthogonalDistances.empty()
+    ?  GetMinimalPathOrthogonalDistances(
+            start_pin.Type == ImNodesAttributeType_Input ? start_pin.Pos-end_pin.Pos : end_pin.Pos-start_pin.Pos,
+            GImNodes->Style.LinkTerminationMargin)
+    : link.PathOrthogonalDistances;
+}
+
+inline ImVector<float> GetLinkPathOrthogonalDistances(
+    ImNodesEditorContext& editor, const int link_idx)
+{
+    const ImLinkData& link = editor.Links.Pool[link_idx];
+    return GetLinkPathOrthogonalDistances(
+        link,
+        editor.Pins.Pool[link.StartPinIdx],
+        editor.Pins.Pool[link.EndPinIdx]
+    );
+}
+
+
 inline void SetLinkPathOrthogonalWaypoints(
     ImVector<float>& link_path,
     const ImVec2& pin_start_pos,
@@ -184,7 +306,7 @@ inline void SetLinkPathOrthogonalWaypoints(
     link_path.push_back(distance);
 }
 
-inline float GetDistanceToPathOrthogonalDistances(
+inline float GetDistanceToPathOrthogonalDistancesAsLines(
     const ImVec2& start,
     const ImVector<float>& path_orthogonal_distances,
     const ImVec2& point
@@ -217,7 +339,7 @@ inline float GetDistanceToPathOrthogonalDistances(
     return ImSqrt(closest_distance);
 }
 
-inline float GetDistanceToPathOrthogonalDistancesAsBeziers(
+inline float GetDistanceToPathOrthogonalDistancesAsQuadraticBeziers(
     const ImVec2& start,
     const ImVector<float>& path_orthogonal_distances,
     const float line_segments_per_length,
@@ -270,7 +392,31 @@ inline float GetDistanceToPathOrthogonalDistancesAsBeziers(
     return closest_distance;
 }
 
-inline void AddLinkPathAsBeziers(
+inline float GetDistanceToPathOrthogonalDistances(
+    const ImNodesLinkStyle link_style,
+    const ImVec2& start,
+    const ImVector<float>& path_orthogonal_distances,
+    const ImVec2& point
+)
+{
+    switch (link_style) {
+        case ImNodesLinkStyle_Beziers:
+            return GetDistanceToPathOrthogonalDistancesAsQuadraticBeziers(
+                start,
+                path_orthogonal_distances,
+                GImNodes->Style.LinkLineSegmentsPerLength,
+                point);
+            break;
+        case ImNodesLinkStyle_Orthogonal:
+        default:
+            return GetDistanceToPathOrthogonalDistancesAsLines(
+                start,
+                path_orthogonal_distances,
+                point);
+    }
+}
+
+inline void AddLinkPathAsQuadraticBeziers(
     const ImVec2          start,
     const ImVector<float> path_orthogonal_distances,
     const float           line_segments_per_length,
@@ -330,7 +476,7 @@ inline void AddLinkPathAsBeziers(
     GImNodes->CanvasDrawList->PathStroke(col, 0, thickness);
 }
 
-inline void AddLinkPath(
+inline void AddLinkPathAsOrthogonalLines(
     const ImVec2          start,
     const ImVector<float> path_orthogonal_distances,
     const float           line_segments_per_length,
@@ -362,6 +508,38 @@ inline void AddLinkPath(
     }
 
     GImNodes->CanvasDrawList->PathStroke(col, 0, thickness);
+}
+
+inline void AddLinkPath(
+    const ImNodesLinkStyle link_style,
+    const ImVec2            start,
+    const ImVector<float>   path_orthogonal_distances,
+    const float             line_segments_per_length,
+    const ImU32             col,
+    const float             thickness,
+    const float             scaling_factor
+)
+{
+    switch (link_style) {
+        case ImNodesLinkStyle_Beziers:
+            AddLinkPathAsQuadraticBeziers(
+                start,
+                path_orthogonal_distances,
+                line_segments_per_length,
+                col,
+                thickness,
+                scaling_factor);
+            break;
+        case ImNodesLinkStyle_Orthogonal:
+        default:
+            AddLinkPathAsOrthogonalLines(
+                start,
+                path_orthogonal_distances,
+                line_segments_per_length,
+                col,
+                thickness,
+                scaling_factor);
+    }
 }
 
 inline float EvalImplicitLineEq(const ImVec2& p1, const ImVec2& p2, const ImVec2& p)
@@ -420,6 +598,28 @@ inline bool RectangleOverlapsLineSegment(const ImRect& rect, const ImVec2& p1, c
     return abs(sum) != sum_abs;
 }
 
+inline bool RectangleOverlapsBezier(const ImRect& rectangle, const CubicBezier& cubic_bezier)
+{
+    ImVec2 current =
+        EvalCubicBezier(0.f, cubic_bezier.P0, cubic_bezier.P1, cubic_bezier.P2, cubic_bezier.P3);
+    const float dt = 1.0f / cubic_bezier.NumSegments;
+    for (int s = 0; s < cubic_bezier.NumSegments; ++s)
+    {
+        ImVec2 next = EvalCubicBezier(
+            static_cast<float>((s + 1) * dt),
+            cubic_bezier.P0,
+            cubic_bezier.P1,
+            cubic_bezier.P2,
+            cubic_bezier.P3);
+        if (RectangleOverlapsLineSegment(rectangle, current, next))
+        {
+            return true;
+        }
+        current = next;
+    }
+    return false;
+}
+
 inline bool RectangleOverlapsQuadraticBezier(const ImRect& rectangle, const QuadraticBezier& qb)
 {
     ImVec2 current =
@@ -451,7 +651,47 @@ inline bool RectangleOverlapsQuadraticBezier(const ImRect& rectangle, const Quad
     return false;
 }
 
-inline bool RectangleOverlapsLink(
+inline bool RectangleOverlapsLinkAsCubicBeziers(
+    const ImRect&              rectangle,
+    const ImVec2&              start,
+    const ImVec2&              end,
+    const ImNodesAttributeType start_type)
+{
+    // First level: simple rejection test via rectangle overlap:
+
+    ImRect lrect = ImRect(start, end);
+    if (lrect.Min.x > lrect.Max.x)
+    {
+        ImSwap(lrect.Min.x, lrect.Max.x);
+    }
+
+    if (lrect.Min.y > lrect.Max.y)
+    {
+        ImSwap(lrect.Min.y, lrect.Max.y);
+    }
+
+    if (rectangle.Overlaps(lrect))
+    {
+        // First, check if either one or both endpoinds are trivially contained
+        // in the rectangle
+
+        if (rectangle.Contains(start) || rectangle.Contains(end))
+        {
+            return true;
+        }
+
+        // Second level of refinement: do a more expensive test against the
+        // link
+
+        const CubicBezier cubic_bezier =
+            GetCubicBezier(start, end, start_type, GImNodes->Style.LinkLineSegmentsPerLength);
+        return RectangleOverlapsBezier(rectangle, cubic_bezier);
+    }
+
+    return false;
+}
+
+inline bool RectangleOverlapsLinkAsOrthogonalLines(
     const ImRect& rectangle,
     const ImVec2& start,
     const ImVector<float>& path_orthogonal_distances)
@@ -484,7 +724,7 @@ inline bool RectangleOverlapsLink(
     return false;
 }
 
-inline bool RectangleOverlapsLinkAsBeziers(
+inline bool RectangleOverlapsLinkAsQuadraticBeziers(
     const ImRect& rectangle,
     const ImVec2& start,
     const ImVector<float>& path_orthogonal_distances,
@@ -528,6 +768,29 @@ inline bool RectangleOverlapsLinkAsBeziers(
     }
     return false;
 }
+
+inline bool RectangleOverlapsLink(
+    const ImRect& rectangle,
+    const ImVec2& start,
+    const ImNodesLinkStyle link_style,
+    const ImVector<float>& path_orthogonal_distances)
+{
+    switch (link_style) {
+        case ImNodesLinkStyle_Beziers:
+            return RectangleOverlapsLinkAsQuadraticBeziers(
+                rectangle,
+                start,
+                path_orthogonal_distances,
+                GImNodes->Style.LinkLineSegmentsPerLength);
+        case ImNodesLinkStyle_Orthogonal:
+        default:
+            return RectangleOverlapsLinkAsOrthogonalLines(
+                rectangle,
+                start,
+                path_orthogonal_distances);
+    }
+}
+
 
 // [SECTION] coordinate space conversion helpers
 
@@ -1065,27 +1328,13 @@ void BoxSelectorUpdateSelection(ImNodesEditorContext& editor, ImRect box_rect)
         {
             const ImLinkData& link = editor.Links.Pool[link_idx];
             // Test
-            switch (editor.Pins.Pool[link.StartPinIdx].LinkStyle) {
-                case ImNodesLinkStyle_Beziers:
-                    if (RectangleOverlapsLinkAsBeziers(
-                        box_rect,
-                        editor.Pins.Pool[link.StartPinIdx].Pos,
-                        link.PathOrthogonalDistances,
-                        GImNodes->Style.LinkLineSegmentsPerLength))
-                    {
-                        editor.SelectedLinkIndices.push_back(link_idx);
-                    }
-                    break;
-                case ImNodesLinkStyle_Orthogonal:
-                default:
-                    if (RectangleOverlapsLink(
-                        box_rect,
-                        editor.Pins.Pool[link.StartPinIdx].Pos,
-                        link.PathOrthogonalDistances))
-                    {
-                        editor.SelectedLinkIndices.push_back(link_idx);
-                    }
-                    break;
+            if (RectangleOverlapsLink(
+                box_rect,
+                editor.Pins.Pool[link.StartPinIdx].Pos,
+                link.LinkStyle,
+                GetLinkPathOrthogonalDistances(editor, link_idx)))
+            {
+                editor.SelectedLinkIndices.push_back(link_idx);
             }
         }
     }
@@ -1183,6 +1432,21 @@ ImOptionalIndex FindDuplicateLink(
     return ImOptionalIndex();
 }
 
+ImOptionalIndex FindLinkByPinIdx(
+    const ImNodesEditorContext& editor,
+    const int                   pin_idx)
+{
+    for (int link_idx = 0; link_idx < editor.Links.Pool.size(); ++link_idx)
+    {
+        const ImLinkData& link = editor.Links.Pool[link_idx];
+        if (link.StartPinIdx == pin_idx || link.EndPinIdx == pin_idx) {
+            return ImOptionalIndex(link_idx);
+        }
+    }
+
+    return ImOptionalIndex();
+}
+
 bool ShouldLinkSnapToPin(
     const ImNodesEditorContext& editor,
     const ImPinData&            start_pin,
@@ -1205,12 +1469,6 @@ bool ShouldLinkSnapToPin(
 
     // The pins must have the same category
     if (start_pin.Category != end_pin.Category)
-    {
-        return false;
-    }
-
-    // The pins must have the same link-style
-    if (start_pin.LinkStyle != end_pin.LinkStyle)
     {
         return false;
     }
@@ -1301,6 +1559,16 @@ void ClickInteractionUpdate(ImNodesEditorContext& editor)
     {
         const ImPinData& start_pin =
             editor.Pins.Pool[editor.ClickInteraction.LinkCreation.StartPinIdx];
+        
+        const ImOptionalIndex maybe_link_idx = FindLinkByPinIdx(
+            editor,
+            editor.ClickInteraction.LinkCreation.StartPinIdx
+        );
+
+        const ImNodesLinkStyle link_style = 
+            maybe_link_idx.HasValue()
+            ? editor.Links.Pool[maybe_link_idx.Value()].LinkStyle
+            : ImNodesLinkStyle_Beziers;
 
         const ImOptionalIndex maybe_duplicate_link_idx =
             GImNodes->HoveredPinIdx.HasValue()
@@ -1341,26 +1609,14 @@ void ClickInteractionUpdate(ImNodesEditorContext& editor)
             start_pin.Type == ImNodesAttributeType_Input ? start_pos-end_pos : end_pos-start_pos,
             GImNodes->Style.LinkTerminationMargin);
         
-        switch (start_pin.LinkStyle) {
-            case ImNodesLinkStyle_Beziers:
-                AddLinkPathAsBeziers(
-                    start_pin.Type == ImNodesAttributeType_Input ? end_pos : start_pos,
-                    path_orthogonal_distances,
-                    GImNodes->Style.LinkLineSegmentsPerLength,
-                    GImNodes->Style.Colors[ImNodesCol_Link],
-                    GImNodes->Style.LinkThickness,
-                    1.0);
-                break;
-            case ImNodesLinkStyle_Orthogonal:
-            default:
-                AddLinkPath(
-                    start_pin.Type == ImNodesAttributeType_Input ? end_pos : start_pos,
-                    path_orthogonal_distances,
-                    GImNodes->Style.LinkLineSegmentsPerLength,
-                    GImNodes->Style.Colors[ImNodesCol_Link],
-                    GImNodes->Style.LinkThickness,
-                    1.0);
-        }
+        AddLinkPath(
+            link_style,
+            start_pin.Type == ImNodesAttributeType_Input ? end_pos : start_pos,
+            path_orthogonal_distances,
+            GImNodes->Style.LinkLineSegmentsPerLength,
+            GImNodes->Style.Colors[ImNodesCol_Link],
+            GImNodes->Style.LinkThickness,
+            1.0);
 
         const bool link_creation_on_snap =
             GImNodes->HoveredPinIdx.HasValue() &&
@@ -1575,21 +1831,11 @@ ImOptionalIndex ResolveHoveredLink(
 
         // The distance test
         {
-            switch (start_pin.LinkStyle) {
-                case ImNodesLinkStyle_Beziers:
-                    distance = GetDistanceToPathOrthogonalDistancesAsBeziers(
-                        start_pin.Pos,
-                        link.PathOrthogonalDistances,
-                        GImNodes->Style.LinkLineSegmentsPerLength,
-                        GImNodes->MousePos);
-                    break;
-                case ImNodesLinkStyle_Orthogonal:
-                default:
-                    distance = GetDistanceToPathOrthogonalDistances(
-                        start_pin.Pos,
-                        link.PathOrthogonalDistances,
-                        GImNodes->MousePos);
-            }
+            distance = GetDistanceToPathOrthogonalDistances(
+                link.LinkStyle,
+                start_pin.Pos,
+                GetLinkPathOrthogonalDistances(link, start_pin, end_pin),
+                GImNodes->MousePos);
 
             // TODO: GImNodes->Style.LinkHoverDistance could be also copied into ImLinkData,
             // since we're not calling this function in the same scope as ImNodes::Link(). The
@@ -2042,26 +2288,20 @@ void DrawLink(ImNodesEditorContext& editor, const int link_idx)
         link_color = link.ColorStyle.Hovered;
     }
 
-    switch (start_pin.LinkStyle) {
-        case ImNodesLinkStyle_Beziers:
-            AddLinkPathAsBeziers(
-                start_pin.Pos,
-                link.PathOrthogonalDistances,
-                GImNodes->Style.LinkLineSegmentsPerLength,
-                link_color,
-                GImNodes->Style.LinkThickness,
-                1.0);
-            break;
-        case ImNodesLinkStyle_Orthogonal:
-        default:
-            AddLinkPath(
-                start_pin.Pos,
-                link.PathOrthogonalDistances,
-                GImNodes->Style.LinkLineSegmentsPerLength,
-                link_color,
-                GImNodes->Style.LinkThickness,
-                1.0);
-    }
+    ImVector<float> path_orth_distances = GetLinkPathOrthogonalDistances(
+        link,
+        start_pin,
+        end_pin
+    );
+
+    AddLinkPath(
+        link.LinkStyle,
+        start_pin.Pos,
+        path_orth_distances,
+        GImNodes->Style.LinkLineSegmentsPerLength,
+        link_color,
+        GImNodes->Style.LinkThickness,
+        1.0);
 }
 
 void BeginPinAttribute(
@@ -2268,32 +2508,28 @@ static void MiniMapDrawLink(ImNodesEditorContext& editor, const int link_idx)
 
     const ImLinkData& link = editor.Links.Pool[link_idx];
     const ImPinData&  start_pin = editor.Pins.Pool[link.StartPinIdx];
+    const ImPinData&  end_pin = editor.Pins.Pool[link.EndPinIdx];
 
     const ImU32 link_color =
         GImNodes->Style.Colors
-            [editor.SelectedLinkIndices.contains(link_idx) ? ImNodesCol_MiniMapLinkSelected
-                                                           : ImNodesCol_MiniMapLink];
+            [editor.SelectedLinkIndices.contains(link_idx)
+                ? ImNodesCol_MiniMapLinkSelected
+                : ImNodesCol_MiniMapLink];
 
-    switch (start_pin.LinkStyle) {
-        case ImNodesLinkStyle_Beziers:
-            AddLinkPathAsBeziers(
-                ScreenSpaceToMiniMapSpace(editor, start_pin.Pos),
-                link.PathOrthogonalDistances,
-                GImNodes->Style.LinkLineSegmentsPerLength / editor.MiniMapScaling,
-                link_color,
-                GImNodes->Style.LinkThickness * editor.MiniMapScaling,
-                editor.MiniMapScaling);
-            break;
-        case ImNodesLinkStyle_Orthogonal:
-        default:
-            AddLinkPath(
-                ScreenSpaceToMiniMapSpace(editor, start_pin.Pos),
-                link.PathOrthogonalDistances,
-                GImNodes->Style.LinkLineSegmentsPerLength / editor.MiniMapScaling,
-                link_color,
-                GImNodes->Style.LinkThickness * editor.MiniMapScaling,
-                editor.MiniMapScaling);
-    }
+    ImVector<float> path_orth_distances = GetLinkPathOrthogonalDistances(
+        link,
+        start_pin,
+        end_pin
+    );
+
+    AddLinkPath(
+        link.LinkStyle,
+        ScreenSpaceToMiniMapSpace(editor, start_pin.Pos),
+        path_orth_distances,
+        GImNodes->Style.LinkLineSegmentsPerLength / editor.MiniMapScaling,
+        link_color,
+        GImNodes->Style.LinkThickness * editor.MiniMapScaling,
+        editor.MiniMapScaling);
 }
 
 static void MiniMapUpdate()
@@ -3053,16 +3289,6 @@ void Link(const int id, const int start_attr_id, const int end_attr_id)
     const ImPinData& pin_end = editor.Pins.Pool[link.EndPinIdx];
     IM_ASSERT(pin_end.Type == ImNodesAttributeType_Input);
 
-    if (link.PathOrthogonalDistances.empty()) {
-        link.PathOrthogonalDistances = GetMinimalPathOrthogonalDistances(
-            GetScreenSpacePinCoordinates(
-                    editor,
-                    pin_end)
-            - GetScreenSpacePinCoordinates(
-                    editor,
-                    pin_start),
-            GImNodes->Style.LinkTerminationMargin);
-    }
     link.ColorStyle.Base = GImNodes->Style.Colors[ImNodesCol_Link];
     link.ColorStyle.Hovered = GImNodes->Style.Colors[ImNodesCol_LinkHovered];
     link.ColorStyle.Selected = GImNodes->Style.Colors[ImNodesCol_LinkSelected];
@@ -3093,14 +3319,14 @@ void LinkWithWaypoints(const int id, const int start_attr_id, const int end_attr
     const ImPinData& pin_end = editor.Pins.Pool[link.EndPinIdx];
     IM_ASSERT(pin_end.Type == ImNodesAttributeType_Input);
 
-    if (link.PathOrthogonalDistances.empty()) {
-        SetLinkPathOrthogonalWaypoints(
-            link.PathOrthogonalDistances,
-            ScreenSpaceToGridSpace(editor, pin_start.Pos),
-            ScreenSpaceToGridSpace(editor, pin_end.Pos),
-            length,
-            orthogonal_waypoints);
-    }
+    
+    SetLinkPathOrthogonalWaypoints(
+        link.PathOrthogonalDistances,
+        ScreenSpaceToGridSpace(editor, pin_start.Pos),
+        ScreenSpaceToGridSpace(editor, pin_end.Pos),
+        length,
+        orthogonal_waypoints);
+
     link.ColorStyle.Base = GImNodes->Style.Colors[ImNodesCol_Link];
     link.ColorStyle.Hovered = GImNodes->Style.Colors[ImNodesCol_LinkHovered];
     link.ColorStyle.Selected = GImNodes->Style.Colors[ImNodesCol_LinkSelected];
@@ -3318,12 +3544,22 @@ void SetPinCategory(const int pin_id, const int category)
     pin.Category = category;
 }
 
-void SetPinLinkStyle(const int pin_id, const ImNodesLinkStyle style)
+int GetPinCategory(const int pin_id)
 {
     ImNodesEditorContext& editor = EditorContextGet();
     const int pin_idx = ObjectPoolFind(editor.Pins, pin_id);
     ImPinData& pin = editor.Pins.Pool[pin_idx];
-    pin.LinkStyle = style;
+    return pin.Category;
+}
+
+void SetLinkStyle(const int link_id, const ImNodesLinkStyle link_style)
+{
+    IM_ASSERT(GImNodes->CurrentScope == ImNodesScope_Editor);
+
+    ImNodesEditorContext& editor = EditorContextGet();
+    const int link_idx = ObjectPoolFind(editor.Links, link_id);
+    ImLinkData& link = editor.Links.Pool[link_idx];
+    link.LinkStyle = link_style;
 }
 
 void SetLinkPathOrthogonalWaypoints(const int link_id, const size_t length, const float* orthogonal_waypoints)
